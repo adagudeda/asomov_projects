@@ -1,0 +1,36 @@
+image: cr.yandex/crp742p3qacifd2hcon2/practice-da:latest
+
+stages:
+    - init
+    - run
+
+task_1_report_job:
+    stage: run
+    only: 
+        refs: 
+            - schedules
+        variables:
+            - $SCHEDULE_TYPE == 'RUN_TASK1' 
+    script: 
+        - python tg_report_task_1.py
+
+task_2_report_job:
+    stage: run
+    only: 
+        refs: 
+            - schedules
+        variables:
+            - $SCHEDULE_TYPE == 'RUN_TASK2'
+    script: 
+        - python tg_report_task_2.py
+
+alert_system_job:
+    stage: run
+    only: 
+        refs: 
+            - schedules
+        variables:
+            - $SCHEDULE_TYPE == 'RUN_ALERT'
+    script: 
+        - python alert_system.py
+
