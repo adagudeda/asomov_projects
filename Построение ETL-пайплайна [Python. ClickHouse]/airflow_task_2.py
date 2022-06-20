@@ -17,6 +17,7 @@ schedule_interval = '0 11 * * *'
 # Вчерашний день
 yesterday = (date.today() - timedelta(days=1))
 
+# параметры подключения для БД с данными
 connection = {
     'host': 'https://clickhouse.lab.karpov.courses',
     'password': 'dpo_python_2020',
@@ -24,6 +25,7 @@ connection = {
     'database': 'simulator'
 }
 
+# параметры подключения для БД с правом записи
 connection_test = {
     'host': 'https://clickhouse.lab.karpov.courses',
     'password': '656e2b0c9c',
@@ -31,10 +33,11 @@ connection_test = {
     'database': 'test'
 }
 
+# задаем dag
 @dag(default_args=default_args, schedule_interval=schedule_interval, catchup=False)
 def dag_etl_tasks():
 
-    @task()
+    @task() # считываем необходимые данные по новостной ленте с БД
     def load_feed():
         query = '''
         SELECT 
@@ -57,7 +60,7 @@ def dag_etl_tasks():
         
         return data_feed
 
-    @task()
+    @task() # считываем необходимые данные по сервису сообщений с БД
     def load_msg():
         query = '''
         SELECT * 
@@ -91,12 +94,12 @@ def dag_etl_tasks():
         
         return data_msg
 
-    @task()
+    @task() # объединяем таллицу
     def union_tables(data_feed, data_msg):
         union_data = data_msg.merge(data_feed, how='outer', on=['user_id', 'gender', 'os', 'age'])
         return union_data
 
-    @task()
+    @task() # расчет метрик
     def context_by_metric(union_data, metric_list=['os', 'age', 'gender']):
         final_data = pd.DataFrame()
         
@@ -108,17 +111,17 @@ def dag_etl_tasks():
                                                                           'views': 'sum',
                                                                           'likes': 'sum'})
 
-            metric_data['metric'] = metric
+            metric_data['metric'] = metric # колонка с названием метрики
             metric_data.rename(columns={metric: 'metric_value'}, inplace=True)
             final_data = pd.concat([final_data, metric_data])
         
         return final_data
 
 
-    @task()
+    @task() # загружаем данные в ClickHouse
     def save_table(final_data):
         
-        # Подготовим таблицу. Добавим дату и преобразуем тип данных        
+        # подготовим таблицу. Добавим дату и преобразуем тип данных        
         final_data['event_date'] = yesterday
         final_data = final_data[['event_date', 'metric', 'metric_value', 'views',
                                  'likes', 'messages_received',
@@ -130,7 +133,8 @@ def dag_etl_tasks():
                                         'users_received': 'int64',
                                         'views': 'int64',
                                         'likes': 'int64'})
-        # Запрос на создание, если еще не создана
+        
+        # запрос на создание, если еще не создана
         create_table = '''
         CREATE TABLE IF NOT EXISTS test.airflow_lesson_asomov
             (event_date Date,
@@ -146,11 +150,13 @@ def dag_etl_tasks():
         ph.execute(query=create_table, connection=connection_test)
         ph.to_clickhouse(df=final_data, table='airflow_lesson_asomov', index=False, connection=connection_test)
 
+    # задаем последовательность тасков
     data_feed = load_feed()
     data_msg = load_msg()
+
     union_data = union_tables(data_feed, data_msg)
     final_data = context_by_metric(union_data)
+
     save_table(final_data)
 
 dag_etl_tasks = dag_etl_tasks()
-
